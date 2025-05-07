@@ -5,9 +5,9 @@
 
 /********************************User configure**************************/
 #define RECONNECT_LIMIT			8
-#define RECONNECT_INTERVAL		5000/*ms*/
-char *test_ssid = "xiaomi3000";
-char *test_password = "123456789";
+#define RECONNECT_INTERVAL		10000/*ms*/
+char *test_ssid = "ITT_Test 2";
+char *test_password = "Test-23892799";
 /***********************************End**********************************/
 static const char *const TAG = "WIFI_RECONN_EXAMPLE";
 u8 reconnect_cnt = 0;
@@ -15,6 +15,7 @@ u8 reconnect_cnt = 0;
 int user_wifi_connect(void)
 {
 	int ret = 0;
+	u8 joinRet;
 	struct rtw_network_info connect_param = {0};
 
 	/*Connect parameter set*/
@@ -26,6 +27,20 @@ int user_wifi_connect(void)
 WIFI_CONNECT:
 	/*Connect*/
 	RTK_LOGI(TAG, "Wifi connect start, retry cnt = %d\n", reconnect_cnt);
+	do {
+		rtos_time_delay_ms(1000);
+		wifi_get_join_status(&joinRet);
+		RTK_LOGI(TAG, "Join status before disconnect %d\n", joinRet);
+	} while ((joinRet > RTW_JOINSTATUS_UNKNOWN) && (joinRet < RTW_JOINSTATUS_SUCCESS));
+	
+	wifi_disconnect();
+
+	do {
+		rtos_time_delay_ms(1000);
+		wifi_get_join_status(&joinRet);
+		RTK_LOGI(TAG, "Join status after disconnect %d\n", joinRet);
+	} while ((joinRet != RTW_JOINSTATUS_DISCONNECT));
+	RTK_LOGI(TAG, "Starting WiFi Connection...\n");
 	ret = wifi_connect(&connect_param, 1);
 	if (ret != RTK_SUCCESS) {
 		RTK_LOGI(TAG, "Reconnect Fail:%d", ret);
@@ -80,10 +95,11 @@ void user_wifi_join_status_event_hdl(u8 *buf, s32 buf_len, s32 flags, void *user
 	(void) buf_len;
 	u8 join_status = (u8)flags;
 	u16 disconn_reason = 0;
-
+	RTK_LOGI(TAG, "Join Status: %d \n", join_status);
 	/*Reconnect when disconnect after connected*/
 	if (join_status == RTW_JOINSTATUS_DISCONNECT) {
 		disconn_reason = ((struct rtw_event_info_joinstatus_disconn *)buf)->disconn_reason;
+		RTK_LOGI(TAG, "Disconn reason: %d \n", disconn_reason);
 		/*Disconnect by APP no need do reconnect*/
 		if (disconn_reason > RTW_DISCONN_RSN_APP_BASE && disconn_reason < RTW_DISCONN_RSN_APP_BASE_END) {
 			return;
@@ -106,6 +122,14 @@ static void user_main_task(void *param)
 		rtos_time_delay_ms(1000);
 	}
 
+	/* Disable realtek fast reconnect */
+	RTK_LOGI(TAG, "Disabling wifi fast connect\n");
+	extern void wifi_fast_connect_enable(unsigned char enable);
+	wifi_fast_connect_enable(0);
+
+	u8 isEnable;
+	wifi_get_autoreconnect(&isEnable);
+	RTK_LOGI(TAG, "auto-reconnect enable: %d\n", isEnable);
 	/* Disable realtek auto reconnect */
 	wifi_set_autoreconnect(0);
 
@@ -121,8 +145,9 @@ static void user_main_task(void *param)
 void example_wifi_user_reconnect(void)
 {
 	/* Disable realtek fast reconnect */
-	extern void wifi_fast_connect_enable(unsigned char enable);
-	wifi_fast_connect_enable(0);
+	// RTK_LOGI(TAG, "Disabling wifi fast connect\n");
+	// extern void wifi_fast_connect_enable(unsigned char enable);
+	// wifi_fast_connect_enable(0);
 
 	if (rtos_task_create(NULL, ((const char *)"user_main_task"), user_main_task, NULL, 1024, 1) != RTK_SUCCESS) {
 		RTK_LOGI(TAG, "\n%s rtos_task_create failed\n", __FUNCTION__);
