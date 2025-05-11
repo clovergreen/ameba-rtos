@@ -11,6 +11,8 @@ char *test_password = "Test-23892799";
 /***********************************End**********************************/
 static const char *const TAG = "WIFI_RECONN_EXAMPLE";
 u8 reconnect_cnt = 0;
+void user_wifi_join_status_event_hdl(u8 *buf, s32 buf_len, s32 flags, void *userdata);
+
 
 int user_wifi_connect(void)
 {
@@ -32,7 +34,7 @@ WIFI_CONNECT:
 		wifi_get_join_status(&joinRet);
 		RTK_LOGI(TAG, "Join status before disconnect %d\n", joinRet);
 	} while ((joinRet > RTW_JOINSTATUS_UNKNOWN) && (joinRet < RTW_JOINSTATUS_SUCCESS));
-	
+
 	wifi_disconnect();
 
 	do {
@@ -40,6 +42,10 @@ WIFI_CONNECT:
 		wifi_get_join_status(&joinRet);
 		RTK_LOGI(TAG, "Join status after disconnect %d\n", joinRet);
 	} while ((joinRet != RTW_JOINSTATUS_DISCONNECT));
+
+	/* Register join status event, trigger reconnect when disconnect happen*/
+	// wifi_reg_event_handler(RTW_EVENT_JOIN_STATUS, user_wifi_join_status_event_hdl, NULL);
+
 	RTK_LOGI(TAG, "Starting WiFi Connection...\n");
 	ret = wifi_connect(&connect_param, 1);
 	if (ret != RTK_SUCCESS) {
@@ -104,7 +110,7 @@ void user_wifi_join_status_event_hdl(u8 *buf, s32 buf_len, s32 flags, void *user
 		if (disconn_reason > RTW_DISCONN_RSN_APP_BASE && disconn_reason < RTW_DISCONN_RSN_APP_BASE_END) {
 			return;
 		}
-
+		RTK_LOGI(TAG, "Creating wifi reconnect task...\n");
 		/*Creat a task to do wifi reconnect because call WIFI API in WIFI event is not safe*/
 		if (rtos_task_create(NULL, ((const char *)"user_wifi_reconnect_task"), user_wifi_reconnect_task, NULL, 1024 * 4, 1) != RTK_SUCCESS) {
 			RTK_LOGI(TAG, "Create reconnect task failed\n");
@@ -149,7 +155,7 @@ void example_wifi_user_reconnect(void)
 	// extern void wifi_fast_connect_enable(unsigned char enable);
 	// wifi_fast_connect_enable(0);
 
-	if (rtos_task_create(NULL, ((const char *)"user_main_task"), user_main_task, NULL, 1024, 1) != RTK_SUCCESS) {
+	if (rtos_task_create(NULL, ((const char *)"user_main_task"), user_main_task, NULL, 2048, 1) != RTK_SUCCESS) {
 		RTK_LOGI(TAG, "\n%s rtos_task_create failed\n", __FUNCTION__);
 	}
 }
