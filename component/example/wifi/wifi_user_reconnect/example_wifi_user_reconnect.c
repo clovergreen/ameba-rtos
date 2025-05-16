@@ -10,7 +10,9 @@ char *test_ssid = "ITT_Test 2";
 char *test_password = "Test-23892799";
 /***********************************End**********************************/
 static const char *const TAG = "WIFI_RECONN_EXAMPLE";
+static const char *const IO_TAG = "IO_OTA_LOG";
 u8 reconnect_cnt = 0;
+u8 gWiFiOkFlag = 0;
 void user_wifi_join_status_event_hdl(u8 *buf, s32 buf_len, s32 flags, void *userdata);
 
 
@@ -20,6 +22,7 @@ int user_wifi_connect(void)
 	u8 joinRet;
 	struct rtw_network_info connect_param = {0};
 
+	gWiFiOkFlag = 0;
 	/*Connect parameter set*/
 	memcpy(connect_param.ssid.val, test_ssid, strlen(test_ssid));
 	connect_param.ssid.len = strlen(test_ssid);
@@ -68,6 +71,7 @@ WIFI_CONNECT:
 		if (ret == DHCP_ADDRESS_ASSIGNED) {
 			RTK_LOGI(TAG, "DHCP Success\n");
 			reconnect_cnt = 0;
+			gWiFiOkFlag = 1;
 			return RTK_SUCCESS;
 		} else {
 			RTK_LOGI(TAG, "DHCP Fail\n");
@@ -148,6 +152,34 @@ static void user_main_task(void *param)
 	rtos_task_delete(NULL);
 }
 
+static void io_ota_sample_task(void *param) {
+
+	(void) param;
+	GPIO_InitTypeDef GPIO_InitStruct_OTA_DET;
+
+	// Init Push Button pin
+	GPIO_InitStruct_OTA_DET.GPIO_Pin = GPIO_OTA_DET_PIN;
+	GPIO_InitStruct_OTA_DET.GPIO_Mode = GPIO_Mode_IN;
+	GPIO_InitStruct_OTA_DET.GPIO_PuPd = GPIO_PuPd_DOWN;
+	GPIO_Init(&GPIO_InitStruct_OTA_DET);
+
+	// This task will keep checking for a GPIO state. Once it goes to some state, OTA will be triggered
+	while (!gWiFiOkFlag) {
+		RTK_LOGI(IO_TAG, "Waiting for WiFi Ready...\n");
+		rtos_time_delay_ms(2000);
+	}
+	// Check the OTA_DET GPIO to see if OTA process should be started
+	do {
+		RTK_LOGI(IO_TAG, "Waiting for OTA_DET trigger...\n");
+		rtos_time_delay_ms(1000);
+	} while (!GPIO_ReadDataBit(GPIO_OTA_DET_PIN));
+	
+	RTK_LOGI(IO_TAG, "OTA_DET triggered...\n");
+	// Prepare for OTA operation
+
+	rtos_task_delete(NULL);
+}
+
 void example_wifi_user_reconnect(void)
 {
 	/* Disable realtek fast reconnect */
@@ -157,6 +189,10 @@ void example_wifi_user_reconnect(void)
 
 	if (rtos_task_create(NULL, ((const char *)"user_main_task"), user_main_task, NULL, 2048, 1) != RTK_SUCCESS) {
 		RTK_LOGI(TAG, "\n%s rtos_task_create failed\n", __FUNCTION__);
+	}
+
+	if (rtos_task_create(NULL, ((const char *)"io_ota_sample_task"), io_ota_sample_task, NULL, 2048, 1) != RTK_SUCCESS) {
+		RTK_LOGI(TAG, "\n%s rtos_task_create (io_ota_sample_task) failed\n", __FUNCTION__);
 	}
 }
 
