@@ -16,7 +16,7 @@
 /** @addtogroup Ameba_Platform
   * @{
   */
-#define OTA_CLEAR_PATTERN	0
+#define OTA_CLEAR_PATTERN	1
 
 #define BUF_SIZE			2048								/*the size of the buffer used for receiving firmware data from server*/
 #define HEADER_BAK_LEN		32

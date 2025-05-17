@@ -2,17 +2,24 @@
 #include "wifi_api.h"
 #include "lwip_netconf.h"
 #include "os_wrapper.h"
+#include "ameba_ota.h"
 
 /********************************User configure**************************/
 #define RECONNECT_LIMIT			8
 #define RECONNECT_INTERVAL		10000/*ms*/
 char *test_ssid = "ITT_Test 2";
 char *test_password = "Test-23892799";
+#define PORT	8082
+static const char *host = "192.168.50.69";  //"m-apps.oss-cn-shenzhen.aliyuncs.com"
+static const char *resource = "ota_all.bin";     //"051103061600.bin"
 /***********************************End**********************************/
 static const char *const TAG = "WIFI_RECONN_EXAMPLE";
 static const char *const IO_TAG = "IO_OTA_LOG";
 u8 reconnect_cnt = 0;
 u8 gWiFiOkFlag = 0;
+
+extern void sys_reset(void);
+
 void user_wifi_join_status_event_hdl(u8 *buf, s32 buf_len, s32 flags, void *userdata);
 
 
@@ -156,7 +163,10 @@ static void io_ota_sample_task(void *param) {
 
 	(void) param;
 	GPIO_InitTypeDef GPIO_InitStruct_OTA_DET;
+	ota_context *ctx = NULL;
+	int ret = -1;
 
+	RTK_LOGI(IO_TAG, "======================IO_OTA Sample V1.1======================\n");
 	// Init Push Button pin
 	GPIO_InitStruct_OTA_DET.GPIO_Pin = GPIO_OTA_DET_PIN;
 	GPIO_InitStruct_OTA_DET.GPIO_Mode = GPIO_Mode_IN;
@@ -175,8 +185,32 @@ static void io_ota_sample_task(void *param) {
 	} while (!GPIO_ReadDataBit(GPIO_OTA_DET_PIN));
 	
 	RTK_LOGI(IO_TAG, "OTA_DET triggered...\n");
-	// Prepare for OTA operation
 
+	// Prepare for OTA operation
+	ctx = (ota_context *)rtos_mem_malloc(sizeof(ota_context));
+	if (ctx != NULL) {
+		memset(ctx, 0, sizeof(ota_context));
+
+		ret = ota_update_init(ctx, (char *)host, PORT, (char *)resource, OTA_HTTP);
+		if (ret != 0) {
+			RTK_LOGI(IO_TAG, "ota_update_init failed");
+		} else {
+			ret = ota_update_start(ctx);
+			RTK_LOGI(IO_TAG, "OTA Update task exit");
+			if (!ret) {
+				RTK_LOGI(IO_TAG, "OTA Ready to reboot");
+				rtos_time_delay_ms(20);
+				sys_reset();
+			}
+		}
+	} else {
+		RTK_LOGI(IO_TAG, "OTA ctx malloc failed\n");
+	}
+
+	ota_update_deinit(ctx);
+	if (ctx) {
+		rtos_mem_free(ctx);
+	}
 	rtos_task_delete(NULL);
 }
 
