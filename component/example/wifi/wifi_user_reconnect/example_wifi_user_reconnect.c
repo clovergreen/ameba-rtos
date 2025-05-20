@@ -1,6 +1,8 @@
 #include "example_wifi_user_reconnect.h"
 #include "wifi_api.h"
 #include "lwip_netconf.h"
+#include "httpc/httpc.h"
+#include "cJSON.h"
 #include "os_wrapper.h"
 #include "ameba_ota.h"
 
@@ -12,9 +14,11 @@ char *test_password = "Test-23892799";
 #define PORT	8082
 static const char *host = "192.168.50.69";  //"m-apps.oss-cn-shenzhen.aliyuncs.com"
 static const char *resource = "ota_all.bin";     //"051103061600.bin"
+static const char *firebase_server_host = "aerotrack-6b4b4-default-rtdb.asia-southeast1.firebasedatabase.app";
 /***********************************End**********************************/
 static const char *const TAG = "WIFI_RECONN_EXAMPLE";
 static const char *const IO_TAG = "IO_OTA_LOG";
+static const char *const FB_TAG = "FIREBASE_LOG";
 u8 reconnect_cnt = 0;
 u8 gWiFiOkFlag = 0;
 
@@ -214,6 +218,126 @@ static void io_ota_sample_task(void *param) {
 	rtos_task_delete(NULL);
 }
 
+static char *generate_firebase_json_data(uint32_t curTime) {
+
+	cJSON_Hooks memoryHook;
+
+	memoryHook.malloc_fn = malloc;
+	memoryHook.free_fn = free;
+	cJSON_InitHooks(&memoryHook);
+
+
+	cJSON *fbRptBaseObj = NULL, *fbRptStatusSubObj = NULL;
+	char *retJson = NULL;
+
+	if ((fbRptBaseObj = cJSON_CreateObject()) != NULL) {
+
+		cJSON_AddItemToObject(fbRptBaseObj, "tagId", cJSON_CreateString("brian_vir_dev"));
+		cJSON_AddItemToObject(fbRptBaseObj, "time", cJSON_CreateNumber(curTime));
+		cJSON_AddItemToObject(fbRptBaseObj, "status", fbRptStatusSubObj = cJSON_CreateObject());
+		cJSON_AddItemToObject(fbRptBaseObj, "temperature", cJSON_CreateNumber(10));
+        cJSON_AddItemToObject(fbRptBaseObj, "humidity", cJSON_CreateNumber(10));
+        cJSON_AddItemToObject(fbRptBaseObj, "airQuality", cJSON_CreateNumber(10));
+        cJSON_AddItemToObject(fbRptBaseObj, "tvoc", cJSON_CreateNumber(2));
+        cJSON_AddItemToObject(fbRptBaseObj, "co2", cJSON_CreateNumber(10));
+
+        cJSON_AddItemToObject(fbRptBaseObj, "nc03", cJSON_CreateNumber(1));
+        cJSON_AddItemToObject(fbRptBaseObj, "nc05", cJSON_CreateNumber(1));
+        cJSON_AddItemToObject(fbRptBaseObj, "nc1", cJSON_CreateNumber(1));
+        cJSON_AddItemToObject(fbRptBaseObj, "nc25", cJSON_CreateNumber(1));
+        cJSON_AddItemToObject(fbRptBaseObj, "nc4", cJSON_CreateNumber(1));
+
+        cJSON_AddItemToObject(fbRptBaseObj, "kpm1", cJSON_CreateNumber(5));
+        cJSON_AddItemToObject(fbRptBaseObj, "kpm25", cJSON_CreateNumber(5));
+        cJSON_AddItemToObject(fbRptBaseObj, "kpm10", cJSON_CreateNumber(5));
+
+        cJSON_AddItemToObject(fbRptBaseObj, "cpm1", cJSON_CreateNumber(8));
+        cJSON_AddItemToObject(fbRptBaseObj, "cpm25", cJSON_CreateNumber(8));
+        cJSON_AddItemToObject(fbRptBaseObj, "cpm10", cJSON_CreateNumber(8));
+
+		cJSON_AddItemToObject(fbRptStatusSubObj, "isFanWorking", cJSON_CreateTrue());
+		cJSON_AddItemToObject(fbRptStatusSubObj, "isFanSpeedNormal", cJSON_CreateTrue());
+		cJSON_AddItemToObject(fbRptStatusSubObj, "isDustAccumulated", cJSON_CreateFalse());
+		cJSON_AddItemToObject(fbRptStatusSubObj, "isHighConcentration", cJSON_CreateTrue());
+		cJSON_AddItemToObject(fbRptStatusSubObj, "time", cJSON_CreateNumber(curTime));
+
+		retJson = cJSON_Print(fbRptBaseObj);
+		cJSON_Delete(fbRptBaseObj);
+	}
+	return retJson;
+
+}
+
+static void firebase_sample_task(void *param) {
+
+	(void) param;
+	struct httpc_conn *conn = NULL;
+	uint32_t curTime;
+	uint8_t pathStr[128] = {0};
+	char *put_data;
+
+	// Delay to check successful WiFi connection and obtain of an IP address
+	LwIP_Check_Connectivity();
+
+	RTK_LOGI(FB_TAG, "======================Firebase Sample V1.0======================\n");
+	conn = httpc_conn_new(HTTPC_SECURE_TLS, NULL, NULL, NULL);
+
+	if (conn) {
+		if (httpc_conn_connect(conn, (char *)firebase_server_host, 443, 0) == 0) {
+
+			/* HTTP POST request */
+			curTime = rtos_time_get_current_system_time_ms();
+			put_data = generate_firebase_json_data(curTime);
+			// start a header and add Host (added automatically), Content-Type and Content-Length (added by input param)
+			sprintf((char *)pathStr, "/debug/real_time_data/brian_vir_dev/%lu.json", curTime);
+			httpc_request_write_header_start(conn, (char *)"PUT", (char *)pathStr, NULL, strlen(put_data));
+			// add other header fields if necessary
+			// httpc_request_write_header(conn, (char *)"Connection", (char *)"close");
+			// finish and send header
+			httpc_request_write_header_finish(conn);
+			// send http body
+			RTK_LOGI(FB_TAG, "Tx Data Size: %d\n", strlen(put_data));
+			RTK_LOGI(FB_TAG, "Tx Data: %s\n", put_data);
+			httpc_request_write_data(conn, (uint8_t *)put_data, strlen(put_data));
+
+			// receive response header
+			if (httpc_response_read_header(conn) == 0) {
+				httpc_conn_dump_header(conn);
+
+				// receive response body
+				if (httpc_response_is_status(conn, (char *)"200 OK")) {
+					uint8_t buf[2048];
+					int read_size = 0;
+					uint32_t total_size = 0;
+
+					while (1) {
+						memset(buf, 0, sizeof(buf));
+						read_size = httpc_response_read_data(conn, buf, sizeof(buf) - 1);
+
+						if (read_size > 0) {
+							total_size += read_size;
+							printf("%s", buf);
+						} else {
+							break;
+						}
+
+						if (conn->response.content_len && (total_size >= conn->response.content_len)) {
+							break;
+						}
+					}
+					RTK_LOGI(FB_TAG, "Rcv Data Size: %d\n", total_size);
+					RTK_LOGI(FB_TAG, "Rcv Data: %s\n", buf);
+				}
+			}
+		} else {
+			RTK_LOGI(FB_TAG, "\nERROR: httpc_conn_connect\n");
+		}
+
+		httpc_conn_close(conn);
+		httpc_conn_free(conn);
+	}
+	rtos_task_delete(NULL);
+}
 void example_wifi_user_reconnect(void)
 {
 	/* Disable realtek fast reconnect */
@@ -227,6 +351,10 @@ void example_wifi_user_reconnect(void)
 
 	if (rtos_task_create(NULL, ((const char *)"io_ota_sample_task"), io_ota_sample_task, NULL, 2048, 1) != RTK_SUCCESS) {
 		RTK_LOGI(TAG, "\n%s rtos_task_create (io_ota_sample_task) failed\n", __FUNCTION__);
+	}
+
+	if (rtos_task_create(NULL, ((const char *)"firebase_sample_task"), firebase_sample_task, NULL, 2048*6, 1) != RTK_SUCCESS) {
+		RTK_LOGI(TAG, "\n%s rtos_task_create (firebase_sample_task) failed\n", __FUNCTION__);
 	}
 }
 
