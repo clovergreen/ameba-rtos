@@ -29,6 +29,8 @@ static u8 days_in_month(u8 month, u8 year)
 	return ret;
 }
 
+int ble_peripheral_main(uint8_t enable);
+
 void raw_rtc_demo(void)
 {
 	time_t seconds;
@@ -54,6 +56,8 @@ void raw_rtc_demo(void)
 	RTC_TimeStruct.RTC_Minutes = timeinfo->tm_min;
 	RTC_TimeStruct.RTC_Seconds = timeinfo->tm_sec;
 	RTC_SetTime(RTC_Format_BIN, &RTC_TimeStruct);
+
+	ble_peripheral_main(1); // Enable BLE
 
 	while (1) {
 		/*hour, min, sec get from RTC*/
