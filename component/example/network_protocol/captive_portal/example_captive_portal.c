@@ -1609,6 +1609,7 @@ exit:
 #ifdef CONFIG_LWIP_LAYER
 extern struct netif xnetif[NET_IF_NUM];
 #endif
+int ble_peripheral_main(uint8_t enable);
 
 static void example_start_captive_portal(void *param)
 {
@@ -1616,6 +1617,8 @@ static void example_start_captive_portal(void *param)
 	(void) param;
 
 	rtos_time_delay_ms(500);
+
+	ble_peripheral_main(1);
 
 #ifdef CONFIG_LWIP_LAYER
 	struct netif *pnetif = &xnetif[SOFTAP_WLAN_INDEX];
