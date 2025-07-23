@@ -1656,6 +1656,85 @@ static rtk_bt_le_security_param_t sec_param = {
 	.use_fixed_key = 0,
 	.fixed_key = 000000,
 };
+
+static void start_soft_ap(void) {
+#ifdef CONFIG_LWIP_LAYER
+	struct netif *pnetif = &xnetif[SOFTAP_WLAN_INDEX];
+	u32 ip_addr;
+	u32 netmask;
+	u32 gw;
+#endif
+
+	int timeout = 20;
+
+#ifdef CONFIG_LWIP_LAYER
+	dhcps_deinit();
+	ip_addr = CONCAT_TO_UINT32(AP_IP_ADDR0, AP_IP_ADDR1, AP_IP_ADDR2, AP_IP_ADDR3);
+	netmask = CONCAT_TO_UINT32(AP_NETMASK_ADDR0, AP_NETMASK_ADDR1, AP_NETMASK_ADDR2, AP_NETMASK_ADDR3);
+	gw = CONCAT_TO_UINT32(AP_GW_ADDR0, AP_GW_ADDR1, AP_GW_ADDR2, AP_GW_ADDR3);
+	LwIP_SetIP(SOFTAP_WLAN_INDEX, ip_addr, netmask, gw);
+#endif
+	RTK_LOGE(NOTAG, "Enable Wi-Fi with STA + AP mode\n");
+	if (wifi_on(RTW_MODE_STA) < 0) {
+		RTK_LOGE(NOTAG, "wifi_on failed\n");
+		return;
+	}
+
+	/*********************************************************************************
+	*	1-3. Start AP
+	*********************************************************************************/
+	SOFTAP_CONFIG.ssid.len = strlen(SOFTAP_SSID);
+	memcpy(SOFTAP_CONFIG.ssid.val, SOFTAP_SSID, SOFTAP_CONFIG.ssid.len);
+	SOFTAP_CONFIG.password = (unsigned char *)SOFTAP_PASSWORD;
+	SOFTAP_CONFIG.password_len = strlen(SOFTAP_PASSWORD);
+	SOFTAP_CONFIG.security_type = SOFTAP_SECURITY;
+	SOFTAP_CONFIG.channel = SOFTAP_CHANNEL;
+
+	if (wifi_start_ap(&SOFTAP_CONFIG) < 0) {
+		RTK_LOGE(NOTAG, "wifi_start_ap failed\n");
+		return;
+	}
+	RTK_LOGI(NOTAG, "Check AP running\n");
+
+	while (1) {
+		struct rtw_wifi_setting setting;
+		wifi_get_setting(SOFTAP_WLAN_INDEX, &setting);
+		if (strlen((const char *)setting.ssid) > 0) {
+			if (strcmp((const char *) setting.ssid, (const char *)SOFTAP_CONFIG.ssid.val) == 0) {
+				RTK_LOGI(NOTAG, "%s started\n", SOFTAP_CONFIG.ssid.val);
+				break;
+			}
+		}
+
+		if (timeout == 0) {
+			RTK_LOGI(NOTAG, "ERROR: Start AP timeout!");
+			break;
+		}
+
+		rtos_time_delay_ms(1 * RTOS_TICK_RATE_HZ);
+		timeout --;
+	}
+
+#ifdef CONFIG_LWIP_LAYER
+	dhcps_init(pnetif);
+#endif
+}
+
+static void stop_soft_ap(void) {
+	u32 ip_addr;
+	u32 netmask;
+	u32 gw;
+	// stop dhcp server
+#ifdef CONFIG_LWIP_LAYER
+	dhcps_deinit();
+	ip_addr = CONCAT_TO_UINT32(AP_IP_ADDR0, AP_IP_ADDR1, AP_IP_ADDR2, AP_IP_ADDR3);
+	netmask = CONCAT_TO_UINT32(AP_NETMASK_ADDR0, AP_NETMASK_ADDR1, AP_NETMASK_ADDR2, AP_NETMASK_ADDR3);
+	gw = CONCAT_TO_UINT32(AP_GW_ADDR0, AP_GW_ADDR1, AP_GW_ADDR2, AP_GW_ADDR3);
+	LwIP_SetIP(SOFTAP_WLAN_INDEX, ip_addr, netmask, gw);
+#endif
+	wifi_stop_ap();
+}
+
 static void app_server_disconnect(uint16_t conn_handle)
 {
 	simple_ble_srv_disconnect(conn_handle);
@@ -1852,6 +1931,7 @@ static rtk_bt_evt_cb_ret_t ble_peripheral_gap_app_callback(uint8_t evt_code, voi
 			role = conn_ind->role ? "slave" : "master";
 			BT_LOGA("[APP] Connected, handle: %d, role: %s, remote device: %s\r\n",
 					conn_ind->conn_handle, role, le_addr);
+					start_soft_ap();
 		} else {
 			BT_LOGE("[APP] Connection establish failed(err: 0x%x), remote device: %s\r\n",
 					conn_ind->err, le_addr);
@@ -1868,7 +1948,7 @@ static rtk_bt_evt_cb_ret_t ble_peripheral_gap_app_callback(uint8_t evt_code, voi
 				disconn_ind->reason, disconn_ind->conn_handle, role, le_addr);
 		BT_AT_PRINT("+BLEGAP:disconn,0x%x,%d,%s,%s\r\n",
 					disconn_ind->reason, disconn_ind->conn_handle, role, le_addr);
-
+		stop_soft_ap();
 #if !defined(RTK_BLE_5_0_USE_EXTENDED_ADV) || !RTK_BLE_5_0_USE_EXTENDED_ADV
 		rtk_bt_le_gap_dev_state_t dev_state;
 		rtk_bt_le_adv_param_t adv_param = {0};
@@ -2281,6 +2361,8 @@ int ble_peripheral_main(uint8_t enable)
 	return 0;
 }
 
+
+
 static void example_start_captive_portal(void *param)
 {
 	/* To avoid gcc warnings */
@@ -2289,6 +2371,8 @@ static void example_start_captive_portal(void *param)
 	rtos_time_delay_ms(500);
 
 	ble_peripheral_main(1);
+
+	goto exit;
 
 #ifdef CONFIG_LWIP_LAYER
 	struct netif *pnetif = &xnetif[SOFTAP_WLAN_INDEX];
