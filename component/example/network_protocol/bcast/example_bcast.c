@@ -20,6 +20,7 @@ static void example_bcast_thread(void *param)
 	struct sockaddr_in bindAddr;
 	uint16_t port = 49152;
 	unsigned char packet[1024];
+	char tgtTcpSrvIpAddr[16] = {0};
 
 	// Create socket
 	if ((socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -54,6 +55,7 @@ static void example_bcast_thread(void *param)
 		if ((packetLen = recvfrom(socket, &packet, sizeof(packet), 0, &from, &fromLen)) >= 0) {
 			uint8_t *ip = (uint8_t *) &from_sin->sin_addr.s_addr;
 			uint16_t from_port = ntohs(from_sin->sin_port);
+			sprintf(tgtTcpSrvIpAddr, "%d.%d.%d.%d\n", ip[0], ip[1], ip[2], ip[3]);
 			RTK_LOGS(NOTAG, RTK_LOG_INFO, "recvfrom - %d bytes from %d.%d.%d.%d:%d\n", packetLen, ip[0], ip[1], ip[2], ip[3], from_port);
 			RTK_LOGS(NOTAG, RTK_LOG_INFO, "Message: %s\n", packet);
 		}
@@ -78,6 +80,58 @@ static void example_bcast_thread(void *param)
 		}
 
 		
+	}
+
+	struct sockaddr_in server_addr;
+	int tcp_srv_socket = -1;
+	int keepalive = 1, keepalive_idle = 3, keepalive_interval = 5, keepalive_count = 3;
+	bool testFinish = false;
+	RTK_LOGS(NOTAG, RTK_LOG_INFO, "Prepare connecting to TCP server...\n");
+	if ((tcp_srv_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: tcp server socket failed\n");
+		goto err;
+	}
+	// enable socket keepalive with keepalive timeout = idle(3) + interval(5) * count(3) = 18 seconds
+	if (setsockopt(tcp_srv_socket, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) != 0) {
+		RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: SO_KEEPALIVE\n");
+	}
+	if (setsockopt(tcp_srv_socket, IPPROTO_TCP, TCP_KEEPIDLE, &keepalive_idle, sizeof(keepalive_idle)) != 0) {
+		RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: TCP_KEEPIDLE\n");
+	}
+	if (setsockopt(tcp_srv_socket, IPPROTO_TCP, TCP_KEEPINTVL, &keepalive_interval, sizeof(keepalive_interval)) != 0) {
+		RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: TCP_KEEPINTVL\n");
+	}
+	if (setsockopt(tcp_srv_socket, IPPROTO_TCP, TCP_KEEPCNT, &keepalive_count, sizeof(keepalive_count)) != 0) {
+		RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: TCP_KEEPCNT\n");
+	}
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = inet_addr(tgtTcpSrvIpAddr);
+	server_addr.sin_port = htons(11112);
+	
+	if (connect(tcp_srv_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == 0) {
+		unsigned char response_buf[100];
+		int read_size;
+		RTK_LOGS(NOTAG, RTK_LOG_INFO, "connect OK\n");
+		while (!testFinish) {
+			if (write(tcp_srv_socket, "TCP Test Message\n", 16) > 0) {
+				memset(response_buf, 0, sizeof(response_buf));
+				if ((read_size = read(tcp_srv_socket, response_buf, sizeof(response_buf))) > 0) {
+					RTK_LOGS(NOTAG, RTK_LOG_INFO, "read %d bytes\n", read_size);
+					RTK_LOGS(NOTAG, RTK_LOG_INFO, "recv msg: %s\n", response_buf);
+					if (strcmp((char *)response_buf, "end") == 0) {
+						RTK_LOGS(NOTAG, RTK_LOG_ERROR, "End TCP client test");
+						close(tcp_srv_socket);
+						testFinish = true;
+					}
+				}
+			}
+			
+			// RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: read %d\n", read_size);
+			// close(tcp_srv_socket);
+		}
+	} else {
+		RTK_LOGS(NOTAG, RTK_LOG_ERROR, "ERROR: connect\n");
+		close(tcp_srv_socket);
 	}
 
 	RTK_LOGS(NOTAG, RTK_LOG_INFO, "Setting up TCP connection...\n");
@@ -128,14 +182,17 @@ static void example_bcast_thread(void *param)
 			while (1) {
 				memset(packet, 0x00, sizeof(packet));
 				ret = recv(tcp_client_fd, packet, sizeof(packet), MSG_DONTWAIT);
-				if (ret >= 0) {
+				if (ret > 0) {
 					RTK_LOGS(NOTAG, RTK_LOG_INFO, "TCP Message recv: %s\n", packet);
 					strcat((char *)packet, " - TCP Reply");
 					tcp_packet_len = strlen((char *)packet);
 					ret = send(tcp_client_fd, packet, tcp_packet_len, 0);
 					RTK_LOGS(NOTAG, RTK_LOG_INFO, "TCP Message sent\n");
+				} else if (ret < 0) {
+					RTK_LOGS(NOTAG, RTK_LOG_INFO, "TCP Connection Lost\n");
+					break;
 				}
-			}
+ 			}
 
 		}
 	}
