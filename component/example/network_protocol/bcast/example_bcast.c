@@ -3,7 +3,7 @@
 
 #include "wifi_api.h"
 #include "lwip_netconf.h"
-
+#include "ameba_soc.h"
 
 static void example_bcast_thread(void *param)
 {
@@ -14,6 +14,8 @@ static void example_bcast_thread(void *param)
 	LwIP_Check_Connectivity();
 
 	RTK_LOGS(NOTAG, RTK_LOG_INFO, "\nExample: bcast \n");
+
+	pmu_release_wakelock(PMU_OS);
 
 	int socket = -1;
 	int broadcast = 1;
@@ -78,7 +80,6 @@ static void example_bcast_thread(void *param)
 				break;
 			}
 		}
-
 		
 	}
 
