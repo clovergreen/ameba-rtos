@@ -12,7 +12,10 @@
 static void messageArrived(MessageData *data, void *discard)
 {
 	(void)discard;
-	mqtt_printf(MQTT_INFO, "Message arrived on topic %s: %s\n", data->topicName->lenstring.data, (char *)data->message->payload);
+	char tmpBuf[300] = {0};
+	memcpy(tmpBuf, data->topicName->lenstring.data, data->topicName->lenstring.len);
+	mqtt_printf(MQTT_INFO, "Message arrived on topic %s: %s\n", tmpBuf, (char *)data->message->payload);
+	memset(data->message->payload, 0x00, data->message->payloadlen);
 }
 
 //This example is original and cannot restart if failed. To use this example, define WAIT_FOR_ACK and not define MQTT_TASK in MQTTClient.h
@@ -126,9 +129,12 @@ static void prvMQTTTask(void *pvParameters)
 	MQTTPacket_connectData connectData = MQTTPacket_connectData_initializer;
 	connectData.MQTTVersion = 3;
 	connectData.clientID.cstring = (char *)"FT1_018";
-	const char *address = "broker.emqx.io";
-	const char *sub_topic = "LASS/Test/Pm25Ameba/#";
-	const char *pub_topic = "LASS/Test/Pm25Ameba/FT1_018";
+	// const char *address = "broker.emqx.io";
+	// const char *sub_topic = "LASS/Test/Pm25Ameba/#";
+	// const char *pub_topic = "LASS/Test/Pm25Ameba/FT1_018";
+	const char *address = "broker.hivemq.com";
+	const char *sub_topic = "clovergreen_report_topic";
+	const char *pub_topic = "clovergreen_test_topic";
 
 	NetworkInit(&network);
 	MQTTClientInit(&client, &network, 30000, sendbuf, sizeof(sendbuf), readbuf, sizeof(readbuf));
